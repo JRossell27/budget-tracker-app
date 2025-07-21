@@ -24,10 +24,9 @@ RECURRING_FILE = "recurring.csv"
 REPO_DIR = "budget_repo"
 REMOTE_REPO = GITHUB_REPO_URL.replace("https://", f"https://{GITHUB_TOKEN}@")
 
-# === GITHUB FUNCTIONS (SAFE) ===
+# === GITHUB FUNCTIONS (FORCE FRESH SYNC + TIMESTAMP) ===
 def clone_or_pull_repo():
-    """Always ensure we have the freshest data from GitHub."""
-    # If repo is missing or corrupted, reclone fresh
+    """Always ensure we have the freshest data from GitHub and record last sync time."""
     if not os.path.exists(REPO_DIR) or not os.path.exists(os.path.join(REPO_DIR, ".git")):
         if os.path.exists(REPO_DIR):
             shutil.rmtree(REPO_DIR)
@@ -37,7 +36,6 @@ def clone_or_pull_repo():
             repo = Repo(REPO_DIR)
             repo.remotes.origin.pull()
         except:
-            # If pull fails, reclone fresh
             shutil.rmtree(REPO_DIR)
             Repo.clone_from(REMOTE_REPO, REPO_DIR)
 
@@ -47,11 +45,13 @@ def clone_or_pull_repo():
         for file in os.listdir(os.path.join(REPO_DIR, DATA_FOLDER)):
             shutil.copy(os.path.join(REPO_DIR, DATA_FOLDER, file), DATA_FOLDER)
 
-    # Copy categories and recurring charges too
     for f in [CATEGORY_FILE, RECURRING_FILE]:
         if os.path.exists(os.path.join(REPO_DIR, f)):
             shutil.copy(os.path.join(REPO_DIR, f), f)
 
+    # Save last synced timestamp
+    with open("last_synced.txt", "w") as f:
+        f.write(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
 
 def push_changes_to_repo():
     if not os.path.exists(REPO_DIR) or not os.path.exists(os.path.join(REPO_DIR, ".git")):
@@ -207,21 +207,28 @@ def show_all_time_dashboard():
 # === INIT ===
 clone_or_pull_repo()
 
-# === STREAMLIT APP (MOBILE FRIENDLY + DARK MODE) ===
-st.set_page_config(page_title="Budget Tracker v3.6 (Mobile & Dark Mode)", layout="wide")
-st.title("💰 Budget Tracker v3.6 (Mobile Friendly)")
+# === STREAMLIT APP (MOBILE FRIENDLY + DARK MODE + LAST SYNC) ===
+st.set_page_config(page_title="Budget Tracker v3.6.1", layout="wide")
+st.title("💰 Budget Tracker v3.6.1 (Mobile + Dark Mode)")
 
 tabs = st.tabs(["📊 Dashboard", "✏️ Transactions", "📆 All-Time", "⚙️ Settings"])
 
 # === DASHBOARD TAB ===
 with tabs[0]:
+    # Show last synced status
+    if os.path.exists("last_synced.txt"):
+        with open("last_synced.txt", "r") as f:
+            last_synced = f.read().strip()
+    else:
+        last_synced = "Not yet synced"
+    st.caption(f"✅ **Last Synced:** {last_synced}")
+
     current_year, current_month = datetime.date.today().year, datetime.date.today().month
     years, months = list(range(current_year - 5, current_year + 1)), list(range(1, 13))
     selected_year, selected_month = st.selectbox("Year", reversed(years)), st.selectbox("Month", months, index=current_month - 1)
     df = load_transactions(selected_year, selected_month)
 
     income, expenses, balance = calculate_totals(df)
-    # Dark mode friendly summary box
     st.markdown(f"""
     <div style="padding:8px; border-radius:8px; border:1px solid rgba(255,255,255,0.2);">
     <b>Income:</b> ${income:,.2f} | <b>Expenses:</b> ${expenses:,.2f} | <b>Balance:</b> ${balance:,.2f}
