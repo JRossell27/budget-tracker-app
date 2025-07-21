@@ -1,21 +1,30 @@
+import os
 import streamlit as st
 import pandas as pd
-import os
 import datetime
 import matplotlib.pyplot as plt
 from git import Repo
 import shutil
 
-# === SETTINGS ===
+# === RENDER OPTIMIZATION ===
+os.environ["STREAMLIT_SERVER_PORT"] = os.environ.get("PORT", "10000")
+os.environ["STREAMLIT_SERVER_ADDRESS"] = "0.0.0.0"
+
+# === SECRETS / ENV VARIABLES ===
+if "GITHUB_REPO_URL" in st.secrets:
+    GITHUB_REPO_URL = st.secrets["GITHUB_REPO_URL"]
+    GITHUB_TOKEN = st.secrets["GITHUB_TOKEN"]
+else:
+    GITHUB_REPO_URL = os.environ.get("GITHUB_REPO_URL")
+    GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN")
+
 DATA_FOLDER = "budget_data"
 CATEGORY_FILE = "categories.csv"
 RECURRING_FILE = "recurring.csv"
 REPO_DIR = "budget_repo"
-GITHUB_REPO_URL = st.secrets["GITHUB_REPO_URL"]
-GITHUB_TOKEN = st.secrets["GITHUB_TOKEN"]
 REMOTE_REPO = GITHUB_REPO_URL.replace("https://", f"https://{GITHUB_TOKEN}@")
 
-# === GITHUB FUNCTIONS (FIXED) ===
+# === GITHUB FUNCTIONS (OPTIMIZED) ===
 def clone_or_pull_repo():
     """Clone repo if not exists; if exists, try pull, otherwise ignore errors."""
     if not os.path.exists(REPO_DIR):
@@ -26,7 +35,7 @@ def clone_or_pull_repo():
             origin = repo.remotes.origin
             origin.pull()
         except:
-            pass  # Ignore pull errors (e.g., empty repo or conflicts)
+            pass  # Ignore pull errors
 
     # Copy files from repo to working dir
     if os.path.exists(os.path.join(REPO_DIR, DATA_FOLDER)):
@@ -42,7 +51,6 @@ def push_changes_to_repo():
     repo = Repo(REPO_DIR)
     os.makedirs(os.path.join(REPO_DIR, DATA_FOLDER), exist_ok=True)
 
-    # Copy updated files into repo directory
     for file in os.listdir(DATA_FOLDER):
         shutil.copy(os.path.join(DATA_FOLDER, file), os.path.join(REPO_DIR, DATA_FOLDER, file))
     for f in [CATEGORY_FILE, RECURRING_FILE]:
@@ -53,11 +61,10 @@ def push_changes_to_repo():
     try:
         repo.index.commit(f"Auto-update on {datetime.datetime.now().isoformat()}")
     except:
-        pass  # No new changes
+        pass
 
     try:
-        origin = repo.remotes.origin
-        origin.push()
+        repo.remotes.origin.push()
     except:
         repo.git.push("--force")
 
@@ -252,8 +259,8 @@ def show_all_time_dashboard():
 clone_or_pull_repo()
 
 # === STREAMLIT APP ===
-st.set_page_config(page_title="Budget Tracker v3.3 (GitHub Synced)", layout="wide")
-st.title("💰 Pro Budget Tracker v3.3 (GitHub Synced)")
+st.set_page_config(page_title="Budget Tracker v3.4 (Render Optimized)", layout="wide")
+st.title("💰 Pro Budget Tracker v3.4 (Render Optimized)")
 
 tabs = st.tabs(["📊 Dashboard", "✏️ Manage Transactions", "📆 All-Time Dashboard", "⚙️ Settings"])
 
