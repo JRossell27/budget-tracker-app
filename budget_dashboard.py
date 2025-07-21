@@ -47,10 +47,17 @@ def clone_or_pull_repo():
             shutil.copy(os.path.join(REPO_DIR, f), f)
 
 def push_changes_to_repo():
-    """Push updated files back to GitHub, force pushing if needed."""
+    """Push updated files back to GitHub, force pushing if needed. Reclone if repo is invalid."""
+    # Ensure repo exists and is valid
+    if not os.path.exists(REPO_DIR) or not os.path.exists(os.path.join(REPO_DIR, ".git")):
+        if os.path.exists(REPO_DIR):
+            shutil.rmtree(REPO_DIR)
+        Repo.clone_from(REMOTE_REPO, REPO_DIR)
+
     repo = Repo(REPO_DIR)
     os.makedirs(os.path.join(REPO_DIR, DATA_FOLDER), exist_ok=True)
 
+    # Copy updated files into repo directory
     for file in os.listdir(DATA_FOLDER):
         shutil.copy(os.path.join(DATA_FOLDER, file), os.path.join(REPO_DIR, DATA_FOLDER, file))
     for f in [CATEGORY_FILE, RECURRING_FILE]:
@@ -61,12 +68,13 @@ def push_changes_to_repo():
     try:
         repo.index.commit(f"Auto-update on {datetime.datetime.now().isoformat()}")
     except:
-        pass
+        pass  # No changes
 
     try:
         repo.remotes.origin.push()
     except:
         repo.git.push("--force")
+
 
 # === CATEGORY FUNCTIONS ===
 def load_categories():
