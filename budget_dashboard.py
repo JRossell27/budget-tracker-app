@@ -31,8 +31,7 @@ def clone_or_pull_repo():
     else:
         try:
             repo = Repo(REPO_DIR)
-            origin = repo.remotes.origin
-            origin.pull()
+            repo.remotes.origin.pull()
         except:
             pass
     if os.path.exists(os.path.join(REPO_DIR, DATA_FOLDER)):
@@ -65,7 +64,7 @@ def push_changes_to_repo():
     except:
         repo.git.push("--force")
 
-# === CATEGORY & RECURRING FUNCTIONS (UNCHANGED) ===
+# === CATEGORY & RECURRING ===
 def load_categories():
     return pd.read_csv(CATEGORY_FILE)["category"].tolist() if os.path.exists(CATEGORY_FILE) else []
 
@@ -109,7 +108,7 @@ def apply_recurring_to_month(year, month):
     save_transactions(df, year, month)
     return count
 
-# === TRANSACTION FUNCTIONS (UNCHANGED) ===
+# === TRANSACTIONS ===
 def get_month_file(year, month):
     return os.path.join(DATA_FOLDER, f"{year}-{month:02d}.csv")
 
@@ -143,7 +142,8 @@ def generate_transaction_id(df):
 def calculate_totals(df):
     if df.empty:
         return 0, 0, 0
-    income, expenses = df[df["type"] == "income"]["amount"].sum(), df[df["type"] == "expense"]["amount"].sum()
+    income = df[df["type"] == "income"]["amount"].sum()
+    expenses = df[df["type"] == "expense"]["amount"].sum()
     return income, expenses, income - expenses
 
 def category_tally(df):
@@ -171,6 +171,7 @@ def show_income_vs_expense_chart(df):
     income, expenses, _ = calculate_totals(df)
     fig, ax = plt.subplots()
     ax.bar(["Income", "Expenses"], [income, expenses], color=["green", "red"])
+    ax.set_ylabel("Amount ($)")
     ax.set_title("Income vs Expenses")
     st.pyplot(fig)
 
@@ -195,23 +196,23 @@ def show_all_time_dashboard():
 # === INIT ===
 clone_or_pull_repo()
 
-# === STREAMLIT APP (MOBILE FRIENDLY) ===
-st.set_page_config(page_title="Budget Tracker v3.5 (Mobile)", layout="wide")
-st.title("💰 Budget Tracker v3.5 (Mobile Optimized)")
+# === STREAMLIT APP (MOBILE FRIENDLY + DARK MODE) ===
+st.set_page_config(page_title="Budget Tracker v3.6 (Mobile & Dark Mode)", layout="wide")
+st.title("💰 Budget Tracker v3.6 (Mobile Friendly)")
 
 tabs = st.tabs(["📊 Dashboard", "✏️ Transactions", "📆 All-Time", "⚙️ Settings"])
 
+# === DASHBOARD TAB ===
 with tabs[0]:
     current_year, current_month = datetime.date.today().year, datetime.date.today().month
     years, months = list(range(current_year - 5, current_year + 1)), list(range(1, 13))
     selected_year, selected_month = st.selectbox("Year", reversed(years)), st.selectbox("Month", months, index=current_month - 1)
     df = load_transactions(selected_year, selected_month)
-    categories = load_categories()
 
     income, expenses, balance = calculate_totals(df)
+    # Dark mode friendly summary box
     st.markdown(f"""
-    <div style="position:sticky; top:0; background:white; padding:8px; z-index:999;">
-    <h4>Summary</h4>
+    <div style="padding:8px; border-radius:8px; border:1px solid rgba(255,255,255,0.2);">
     <b>Income:</b> ${income:,.2f} | <b>Expenses:</b> ${expenses:,.2f} | <b>Balance:</b> ${balance:,.2f}
     </div>
     """, unsafe_allow_html=True)
@@ -220,26 +221,38 @@ with tabs[0]:
         st.success(f"✅ {apply_recurring_to_month(selected_year, selected_month)} recurring charges added!")
         st.rerun()
 
+    st.subheader("🏆 Top Spending Categories")
+    st.table(top_categories(df, 3))
+
+    st.subheader("📈 Visualizations")
+    chart_choice = st.radio("Choose Chart", ["Pie Chart (Expenses)", "Income vs Expenses"], horizontal=True)
+    if chart_choice == "Pie Chart (Expenses)":
+        show_pie_chart(df)
+    else:
+        show_income_vs_expense_chart(df)
+
     st.subheader("➕ Add Transaction")
     with st.form("add_txn", clear_on_submit=True):
         t_type = st.radio("Type", ["income", "expense"], horizontal=True)
         amount = st.number_input("Amount", min_value=0.01, step=0.01)
+        categories = load_categories()
         category = st.selectbox("Category", categories + ["Other"])
         custom_category = st.text_input("New Category") if category == "Other" else ""
         note = st.text_input("Note (optional)")
         if st.form_submit_button("Add"):
-            if category == "Other": category = custom_category.strip()
+            if category == "Other":
+                category = custom_category.strip()
+                if category and category not in categories:
+                    categories.append(category)
+                    save_categories(categories)
             if category:
-                if category not in categories: categories.append(category); save_categories(categories)
                 save_transaction({"id": generate_transaction_id(df), "date": datetime.date.today().isoformat(),
                                   "type": t_type, "amount": amount, "category": category, "note": note},
                                  selected_year, selected_month)
                 st.success("✅ Transaction added!")
                 st.rerun()
 
-    st.subheader("📈 Charts")
-    show_pie_chart(df)
-
+# === TRANSACTIONS TAB ===
 with tabs[1]:
     selected_year, selected_month = st.selectbox("Year", reversed(years), key="y2"), st.selectbox("Month", months, index=current_month - 1, key="m2")
     df = load_transactions(selected_year, selected_month)
@@ -251,35 +264,54 @@ with tabs[1]:
         if opt != "None":
             tid = int(opt.split()[1])
             row = df[df["id"] == tid].iloc[0]
-            new_amt, new_cat, new_note = st.number_input("Amount", value=float(row["amount"])), st.text_input("Category", row["category"]), st.text_input("Note", row["note"])
+            new_amt = st.number_input("Amount", value=float(row["amount"]))
+            new_cat = st.text_input("Category", row["category"])
+            new_note = st.text_input("Note", row["note"])
             if st.button("Save"):
                 df.loc[df["id"] == tid, ["amount", "category", "note"]] = [new_amt, new_cat, new_note]
                 save_transactions(df, selected_year, selected_month)
-                st.success("Updated!"); st.rerun()
+                st.success("✅ Updated!")
+                st.rerun()
             if st.button("Delete"):
                 save_transactions(df[df["id"] != tid], selected_year, selected_month)
-                st.success("Deleted!"); st.rerun()
+                st.success("✅ Deleted!")
+                st.rerun()
 
+# === ALL-TIME TAB ===
 with tabs[2]:
     show_all_time_dashboard()
 
+# === SETTINGS TAB ===
 with tabs[3]:
     st.subheader("Categories")
     cats = load_categories()
     st.write("Current:", cats)
     nc = st.text_input("Add Category")
     if st.button("Add") and nc and nc not in cats:
-        cats.append(nc); save_categories(cats); st.success("Added!"); st.rerun()
+        cats.append(nc)
+        save_categories(cats)
+        st.success("✅ Added!")
+        st.rerun()
     dc = st.selectbox("Delete", ["None"] + cats)
     if st.button("Delete") and dc != "None":
-        save_categories([c for c in cats if c != dc]); st.success("Deleted!"); st.rerun()
+        save_categories([c for c in cats if c != dc])
+        st.success("✅ Deleted!")
+        st.rerun()
 
     st.subheader("Recurring Charges")
     rec_df = load_recurring()
-    if not rec_df.empty: st.table(rec_df)
-    rt, ra, rc, rn = st.radio("Type", ["income", "expense"], horizontal=True), st.number_input("Amount", 0.01, step=0.01), st.text_input("Category"), st.text_input("Note")
+    if not rec_df.empty:
+        st.table(rec_df)
+    rt = st.radio("Type", ["income", "expense"], horizontal=True)
+    ra = st.number_input("Amount", min_value=0.01, step=0.01)
+    rc = st.text_input("Category")
+    rn = st.text_input("Note")
     if st.button("Add Recurring"):
-        add_recurring(rt, ra, rc, rn); st.success("Added!"); st.rerun()
+        add_recurring(rt, ra, rc, rn)
+        st.success("✅ Added!")
+        st.rerun()
     dr = st.selectbox("Delete Recurring", ["None"] + [f"ID {r}" for r in rec_df["id"]]) if not rec_df.empty else "None"
     if st.button("Delete Recurring") and dr != "None":
-        delete_recurring(int(dr.split()[1])); st.success("Deleted!"); st.rerun()
+        delete_recurring(int(dr.split()[1]))
+        st.success("✅ Deleted!")
+        st.rerun()
