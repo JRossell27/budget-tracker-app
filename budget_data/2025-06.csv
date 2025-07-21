@@ -1,0 +1,3 @@
+id,date,type,amount,category,note
+1,2025-07-21,expense,3696.0,Rent,June Total Expense(Test)
+2,2025-07-21,income,4319.0,Paychecks,June Total IncomeIc(Test)

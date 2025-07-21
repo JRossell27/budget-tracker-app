@@ -1,0 +1,61 @@
+id,date,type,amount,category,note
+1,2025-07-21,income,1620.54,Paychecks,
+3,2025-07-21,income,1828.82,Paychecks,
+4,2025-07-21,expense,16.69,Restaurants,
+5,2025-07-21,expense,15.9,Transportation,
+6,2025-07-21,expense,15.9,Transportation,
+7,2025-07-21,income,18.0,Venmo Income,
+8,2025-07-21,expense,39.58,Shopping,
+10,2025-07-21,expense,29.04,Shopping,
+11,2025-07-21,expense,2.9,Transportation,
+12,2025-07-21,expense,2.9,Transportation,
+13,2025-07-21,expense,2.9,Transportation,
+14,2025-07-21,expense,2.9,Transportation,
+15,2025-07-21,expense,8.67,Groceries,
+16,2025-07-21,expense,14.0,Entertainment,
+17,2025-07-21,expense,8.58,Shopping,
+18,2025-07-21,expense,15.0,Laundry,
+19,2025-07-21,expense,6.97,Groceries,
+20,2025-07-21,expense,10.78,Shopping,
+21,2025-07-21,expense,7.61,Shopping,
+22,2025-07-21,expense,36.96,Groceries,
+23,2025-07-21,expense,5.8,Shopping,
+24,2025-07-21,expense,35.92,Shopping,
+25,2025-07-21,expense,18.73,Groceries,
+26,2025-07-21,expense,12.73,Shopping,
+27,2025-07-21,expense,15.0,Laundry,
+28,2025-07-21,expense,35.28,Shopping,
+29,2025-07-21,expense,21.64,Shopping,
+30,2025-07-21,expense,40.0,Entertainment,
+31,2025-07-21,expense,15.48,Entertainment,
+32,2025-07-21,expense,13.23,Entertainment,
+33,2025-07-21,expense,15.54,Transportation,
+34,2025-07-21,expense,26.54,Restaurants,Work will reimburse
+35,2025-07-21,expense,12.44,Restaurants,Work will reimburse
+36,2025-07-21,expense,8.18,Restaurants,Work will reimburse
+37,2025-07-21,expense,148.11,Transportation,Enterprie
+38,2025-07-21,expense,7.29,Groceries,Work will reimburse
+39,2025-07-21,expense,91.29,Transportation,Work will reimburse
+40,2025-07-21,expense,21.78,Entertainment,
+41,2025-07-21,expense,35.0,Transportation,Work will reimburse
+42,2025-07-21,expense,25.0,Shopping,Work will reimburse
+43,2025-07-21,expense,118.62,Restaurants,Work will reimburse
+44,2025-07-21,expense,21.07,Restaurants,Work will reimburse
+45,2025-07-21,expense,10.83,Restaurants,
+46,2025-07-21,expense,25.0,Restaurants,Work will reimburse
+47,2025-07-21,expense,25.0,Restaurants,Work will reimburse
+48,2025-07-21,expense,17.6,Shopping,
+49,2025-07-21,expense,43.34,Restaurants,Work will reimburse
+50,2025-07-21,expense,19.75,Restaurants,Work will reimburse
+51,2025-07-21,expense,21.97,Transportation,Work will reimburse
+52,2025-07-21,expense,34.75,Restaurants,Work will reimburse
+53,2025-07-21,expense,36.65,Restaurants,Work will reimburse
+54,2025-07-21,expense,35.0,Transportation,Work will reimburse
+55,2025-07-21,expense,32.23,Restaurants,Work will reimburse
+56,2025-07-21,expense,83.64,Transportation,Work will reimburse
+57,2025-07-21,income,1674.16,Paychecks,Work Trip reimbursement (Pending)
+58,2025-07-21,income,150.0,Entertainment,sphere
+60,2025-07-21,expense,1700.0,Rent,
+61,2025-07-21,expense,281.33,SoFiLoans,
+62,2025-07-21,expense,8.52,Netflix,
+63,2025-07-21,income,0.01,Rent,TEST GIT HUB
