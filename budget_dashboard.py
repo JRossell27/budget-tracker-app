@@ -26,21 +26,32 @@ REMOTE_REPO = GITHUB_REPO_URL.replace("https://", f"https://{GITHUB_TOKEN}@")
 
 # === GITHUB FUNCTIONS (SAFE) ===
 def clone_or_pull_repo():
-    if not os.path.exists(REPO_DIR):
+    """Always ensure we have the freshest data from GitHub."""
+    # If repo is missing or corrupted, reclone fresh
+    if not os.path.exists(REPO_DIR) or not os.path.exists(os.path.join(REPO_DIR, ".git")):
+        if os.path.exists(REPO_DIR):
+            shutil.rmtree(REPO_DIR)
         Repo.clone_from(REMOTE_REPO, REPO_DIR)
     else:
         try:
             repo = Repo(REPO_DIR)
             repo.remotes.origin.pull()
         except:
-            pass
+            # If pull fails, reclone fresh
+            shutil.rmtree(REPO_DIR)
+            Repo.clone_from(REMOTE_REPO, REPO_DIR)
+
+    # Always copy the latest data into budget_data
     if os.path.exists(os.path.join(REPO_DIR, DATA_FOLDER)):
         os.makedirs(DATA_FOLDER, exist_ok=True)
         for file in os.listdir(os.path.join(REPO_DIR, DATA_FOLDER)):
             shutil.copy(os.path.join(REPO_DIR, DATA_FOLDER, file), DATA_FOLDER)
+
+    # Copy categories and recurring charges too
     for f in [CATEGORY_FILE, RECURRING_FILE]:
         if os.path.exists(os.path.join(REPO_DIR, f)):
             shutil.copy(os.path.join(REPO_DIR, f), f)
+
 
 def push_changes_to_repo():
     if not os.path.exists(REPO_DIR) or not os.path.exists(os.path.join(REPO_DIR, ".git")):
