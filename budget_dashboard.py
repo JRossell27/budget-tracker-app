@@ -211,7 +211,7 @@ clone_or_pull_repo()
 st.set_page_config(page_title="Budget Tracker v3.6.1", layout="wide")
 st.title("💰 Budget Tracker v3.6.1 (Mobile + Dark Mode)")
 
-tabs = st.tabs(["📊 Dashboard", "✏️ Transactions", "📆 All-Time", "⚙️ Settings"])
+tabs = st.tabs(["📊 Dashboard", "✏️ Transactions", "📆 All-Time", "🗓️ Past Months", "⚙️ Settings"])
 
 # === DASHBOARD TAB ===
 with tabs[0]:
@@ -299,8 +299,48 @@ with tabs[1]:
 with tabs[2]:
     show_all_time_dashboard()
 
-# === SETTINGS TAB ===
+# === PAST MONTHS TAB ===
 with tabs[3]:
+    st.subheader("🗓️ Monthly History")
+    all_df = load_all_transactions()
+    if all_df.empty:
+        st.info("No historical data yet.")
+    else:
+        monthly_summary = (all_df.groupby(["Year", "Month", "type"])["amount"].sum()
+                              .reset_index()
+                              .pivot_table(index=["Year", "Month"], columns="type", values="amount", fill_value=0)
+                              .reset_index())
+        if "income" not in monthly_summary.columns:
+            monthly_summary["income"] = 0.0
+        if "expense" not in monthly_summary.columns:
+            monthly_summary["expense"] = 0.0
+        monthly_summary = monthly_summary.rename(columns={"income": "Income", "expense": "Expenses"})
+        monthly_summary["Balance"] = monthly_summary["Income"] - monthly_summary["Expenses"]
+        monthly_summary = monthly_summary.sort_values(by=["Year", "Month"], ascending=[False, False])
+        monthly_summary["Month Label"] = monthly_summary.apply(lambda row: f"{int(row['Year'])}-{int(row['Month']):02d}", axis=1)
+
+        st.markdown("**Monthly Totals**")
+        st.dataframe(monthly_summary[["Month Label", "Income", "Expenses", "Balance"]].set_index("Month Label"))
+
+        month_options = monthly_summary["Month Label"].tolist()
+        selected_label = st.selectbox("Select a month", month_options)
+        selected_year, selected_month = map(int, selected_label.split("-"))
+        selected_row = monthly_summary[monthly_summary["Month Label"] == selected_label].iloc[0]
+
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Income", f"${selected_row['Income']:,.2f}")
+        c2.metric("Expenses", f"${selected_row['Expenses']:,.2f}")
+        c3.metric("Balance", f"${selected_row['Balance']:,.2f}")
+
+        st.markdown(f"**Transactions for {selected_label}**")
+        month_df = load_transactions(selected_year, selected_month)
+        if month_df.empty:
+            st.info("No transactions recorded for this month.")
+        else:
+            st.dataframe(month_df)
+
+# === SETTINGS TAB ===
+with tabs[4]:
     st.subheader("Categories")
     cats = load_categories()
     st.write("Current:", cats)
