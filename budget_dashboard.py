@@ -21,6 +21,7 @@ else:
 DATA_FOLDER = "budget_data"
 CATEGORY_FILE = "categories.csv"
 RECURRING_FILE = "recurring.csv"
+SOURCE_FILE = "sources.csv"
 REPO_DIR = "budget_repo"
 REMOTE_REPO = GITHUB_REPO_URL.replace("https://", f"https://{GITHUB_TOKEN}@")
 
@@ -45,7 +46,7 @@ def clone_or_pull_repo():
         for file in os.listdir(os.path.join(REPO_DIR, DATA_FOLDER)):
             shutil.copy(os.path.join(REPO_DIR, DATA_FOLDER, file), DATA_FOLDER)
 
-    for f in [CATEGORY_FILE, RECURRING_FILE]:
+    for f in [CATEGORY_FILE, RECURRING_FILE, SOURCE_FILE]:
         if os.path.exists(os.path.join(REPO_DIR, f)):
             shutil.copy(os.path.join(REPO_DIR, f), f)
 
@@ -62,7 +63,7 @@ def push_changes_to_repo():
     os.makedirs(os.path.join(REPO_DIR, DATA_FOLDER), exist_ok=True)
     for file in os.listdir(DATA_FOLDER):
         shutil.copy(os.path.join(DATA_FOLDER, file), os.path.join(REPO_DIR, DATA_FOLDER, file))
-    for f in [CATEGORY_FILE, RECURRING_FILE]:
+    for f in [CATEGORY_FILE, RECURRING_FILE, SOURCE_FILE]:
         if os.path.exists(f):
             shutil.copy(f, os.path.join(REPO_DIR, f))
     repo.git.add(A=True)
@@ -83,8 +84,20 @@ def save_categories(categories):
     pd.DataFrame({"category": categories}).to_csv(CATEGORY_FILE, index=False)
     push_changes_to_repo()
 
+def load_sources():
+    return pd.read_csv(SOURCE_FILE)["source"].tolist() if os.path.exists(SOURCE_FILE) else []
+
+def save_sources(sources):
+    pd.DataFrame({"source": sources}).to_csv(SOURCE_FILE, index=False)
+    push_changes_to_repo()
+
 def load_recurring():
-    return pd.read_csv(RECURRING_FILE) if os.path.exists(RECURRING_FILE) else pd.DataFrame(columns=["id", "type", "amount", "category", "note"])
+    if os.path.exists(RECURRING_FILE):
+        df = pd.read_csv(RECURRING_FILE)
+        if "source" not in df.columns:
+            df["source"] = ""
+        return df
+    return pd.DataFrame(columns=["id", "type", "amount", "category", "note", "source"])
 
 def save_recurring(df):
     df.to_csv(RECURRING_FILE, index=False)
@@ -93,7 +106,7 @@ def save_recurring(df):
 def add_recurring(t_type, amount, category, note):
     df = load_recurring()
     new_id = int(df["id"].max() + 1) if not df.empty else 1
-    df = pd.concat([df, pd.DataFrame([{"id": new_id, "type": t_type, "amount": amount, "category": category, "note": note}])], ignore_index=True)
+    df = pd.concat([df, pd.DataFrame([{"id": new_id, "type": t_type, "amount": amount, "category": category, "note": note, "source": ""}])], ignore_index=True)
     save_recurring(df)
 
 def delete_recurring(rid):
@@ -107,13 +120,17 @@ def apply_recurring_to_month(year, month):
     df = load_transactions(year, month)
     count = 0
     for _, row in rec_df.iterrows():
+        source_value = row.get("source", "")
+        if pd.isna(source_value) or not str(source_value).strip():
+            source_value = "Recurring"
         df = pd.concat([df, pd.DataFrame([{
             "id": generate_transaction_id(df),
             "date": datetime.date.today().isoformat(),
             "type": row["type"],
             "amount": row["amount"],
             "category": row["category"],
-            "note": row["note"]
+            "note": row["note"],
+            "source": source_value
         }])], ignore_index=True)
         count += 1
     save_transactions(df, year, month)
@@ -124,19 +141,33 @@ def get_month_file(year, month):
     return os.path.join(DATA_FOLDER, f"{year}-{month:02d}.csv")
 
 def load_transactions(year, month):
-    return pd.read_csv(get_month_file(year, month)) if os.path.exists(get_month_file(year, month)) else pd.DataFrame(columns=["id", "date", "type", "amount", "category", "note"])
+    required_cols = ["id", "date", "type", "amount", "category", "note", "source"]
+    if os.path.exists(get_month_file(year, month)):
+        df = pd.read_csv(get_month_file(year, month))
+        for col in required_cols:
+            if col not in df.columns:
+                df[col] = "" if col in {"date", "type", "category", "note", "source"} else 0
+        df["id"] = pd.to_numeric(df["id"], errors="coerce").fillna(0).astype(int)
+        df["amount"] = pd.to_numeric(df["amount"], errors="coerce").fillna(0.0)
+        return df[required_cols]
+    return pd.DataFrame(columns=required_cols)
 
 def load_all_transactions():
     if not os.path.exists(DATA_FOLDER):
-        return pd.DataFrame(columns=["id", "date", "type", "amount", "category", "note", "Year", "Month"])
+        return pd.DataFrame(columns=["id", "date", "type", "amount", "category", "note", "source", "Year", "Month"])
     all_data = []
     for file in os.listdir(DATA_FOLDER):
         if file.endswith(".csv"):
             df = pd.read_csv(os.path.join(DATA_FOLDER, file))
             if not df.empty:
+                for col in ["source"]:
+                    if col not in df.columns:
+                        df[col] = ""
+                df["id"] = pd.to_numeric(df["id"], errors="coerce").fillna(0).astype(int)
+                df["amount"] = pd.to_numeric(df["amount"], errors="coerce").fillna(0.0)
                 df["Year"], df["Month"] = int(file[:4]), int(file[5:7])
                 all_data.append(df)
-    return pd.concat(all_data, ignore_index=True) if all_data else pd.DataFrame(columns=["id", "date", "type", "amount", "category", "note", "Year", "Month"])
+    return pd.concat(all_data, ignore_index=True) if all_data else pd.DataFrame(columns=["id", "date", "type", "amount", "category", "note", "source", "Year", "Month"])
 
 def save_transactions(df, year, month):
     df.to_csv(get_month_file(year, month), index=False)
@@ -253,26 +284,67 @@ with tabs[0]:
 with tabs[1]:
     selected_year, selected_month = st.selectbox("Year", reversed(years), key="y2"), st.selectbox("Month", months, index=current_month - 1, key="m2")
     df = load_transactions(selected_year, selected_month)
+    categories = load_categories()
+    sources = load_sources()
+    if "add_txn_type" not in st.session_state:
+        st.session_state["add_txn_type"] = "expense"
+    if "add_txn_source" not in st.session_state:
+        st.session_state["add_txn_source"] = sources[0] if sources else ""
+
+    type_options = ["income", "expense"]
+    default_type = st.session_state.get("add_txn_type", type_options[0])
+    type_index = type_options.index(default_type) if default_type in type_options else 0
+
+    source_options = sources.copy()
+    if "Other" not in source_options:
+        source_options.append("Other")
+    default_source = st.session_state.get("add_txn_source", source_options[0] if source_options else "Other")
+    if default_source and default_source not in source_options:
+        source_options.insert(0, default_source)
+    source_index = source_options.index(default_source) if default_source in source_options else 0
+
     st.subheader("➕ Add Transaction")
     with st.form("add_txn_transactions", clear_on_submit=True):
-        t_type = st.radio("Type", ["income", "expense"], horizontal=True)
+        t_type = st.radio("Type", type_options, horizontal=True, index=type_index)
         amount = st.number_input("Amount", min_value=0.01, step=0.01)
-        categories = load_categories()
         category = st.selectbox("Category", categories + ["Other"])
         custom_category = st.text_input("New Category") if category == "Other" else ""
         note = st.text_input("Note (optional)")
+        source_choice = st.selectbox("Source", source_options, index=source_index)
+        custom_source = st.text_input("New Source", key="add_new_source") if source_choice == "Other" else ""
+        default_date = st.session_state.get("add_txn_date", datetime.date.today())
+        txn_date = st.date_input("Date", value=default_date, key="add_txn_date")
         if st.form_submit_button("Add"):
             if category == "Other":
                 category = custom_category.strip()
                 if category and category not in categories:
                     categories.append(category)
                     save_categories(categories)
-            if category:
-                save_transaction({"id": generate_transaction_id(df), "date": datetime.date.today().isoformat(),
-                                  "type": t_type, "amount": amount, "category": category, "note": note},
-                                 selected_year, selected_month)
+            if source_choice == "Other":
+                source_choice = custom_source.strip()
+                if source_choice and source_choice not in sources:
+                    sources.append(source_choice)
+                    save_sources(sources)
+            if not category:
+                st.warning("Please provide a category.")
+            elif not source_choice:
+                st.warning("Please provide a source.")
+            else:
+                st.session_state["add_txn_type"] = t_type
+                st.session_state["add_txn_source"] = source_choice
+                transaction_date = txn_date.isoformat() if isinstance(txn_date, datetime.date) else datetime.date.today().isoformat()
+                save_transaction({
+                    "id": generate_transaction_id(df),
+                    "date": transaction_date,
+                    "type": t_type,
+                    "amount": amount,
+                    "category": category,
+                    "note": note,
+                    "source": source_choice
+                }, selected_year, selected_month)
                 st.success("✅ Transaction added!")
                 st.rerun()
+
     if df.empty:
         st.info("No transactions.")
     else:
@@ -284,11 +356,46 @@ with tabs[1]:
             new_amt = st.number_input("Amount", value=float(row["amount"]))
             new_cat = st.text_input("Category", row["category"])
             new_note = st.text_input("Note", row["note"])
+            try:
+                existing_date = datetime.date.fromisoformat(str(row["date"])) if row["date"] else datetime.date.today()
+            except ValueError:
+                existing_date = datetime.date.today()
+            edit_date = st.date_input("Date", value=existing_date, key=f"edit_date_{tid}")
+
+            source_edit_options = sources.copy()
+            current_source = row.get("source", "")
+            if current_source and current_source not in source_edit_options:
+                source_edit_options.append(current_source)
+            if "Other" not in source_edit_options:
+                source_edit_options.append("Other")
+            source_index_edit = source_edit_options.index(current_source) if current_source in source_edit_options else 0
+            new_source_choice = st.selectbox("Source", source_edit_options, index=source_index_edit, key=f"edit_source_{tid}")
+            edit_custom_source = st.text_input("New Source", key=f"edit_new_source_{tid}") if new_source_choice == "Other" else ""
+
             if st.button("Save"):
-                df.loc[df["id"] == tid, ["amount", "category", "note"]] = [new_amt, new_cat, new_note]
+                if new_source_choice == "Other":
+                    new_source_value = edit_custom_source.strip()
+                    if not new_source_value:
+                        st.warning("Please provide a source before saving.")
+                        st.stop()
+                    if new_source_value not in sources:
+                        sources.append(new_source_value)
+                        save_sources(sources)
+                    final_source = new_source_value
+                else:
+                    final_source = new_source_choice
+
+                df.loc[df["id"] == tid, ["amount", "category", "note", "date", "source"]] = [
+                    new_amt,
+                    new_cat,
+                    new_note,
+                    edit_date.isoformat() if isinstance(edit_date, datetime.date) else datetime.date.today().isoformat(),
+                    final_source
+                ]
                 save_transactions(df, selected_year, selected_month)
                 st.success("✅ Updated!")
                 st.rerun()
+
             if st.button("Delete"):
                 save_transactions(df[df["id"] != tid], selected_year, selected_month)
                 st.success("✅ Deleted!")
@@ -352,6 +459,21 @@ with tabs[4]:
     dc = st.selectbox("Delete", ["None"] + cats)
     if st.button("Delete") and dc != "None":
         save_categories([c for c in cats if c != dc])
+        st.success("✅ Deleted!")
+        st.rerun()
+
+    st.subheader("Sources")
+    srcs = load_sources()
+    st.write("Current:", srcs)
+    ns = st.text_input("Add Source", key="settings_add_source")
+    if st.button("Add Source") and ns and ns not in srcs:
+        srcs.append(ns)
+        save_sources(srcs)
+        st.success("✅ Added!")
+        st.rerun()
+    ds = st.selectbox("Delete Source", ["None"] + srcs, key="settings_delete_source")
+    if st.button("Delete Source") and ds != "None":
+        save_sources([s for s in srcs if s != ds])
         st.success("✅ Deleted!")
         st.rerun()
 
