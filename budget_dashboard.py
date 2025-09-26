@@ -249,8 +249,12 @@ with tabs[0]:
     else:
         show_income_vs_expense_chart(df)
 
+# === TRANSACTIONS TAB ===
+with tabs[1]:
+    selected_year, selected_month = st.selectbox("Year", reversed(years), key="y2"), st.selectbox("Month", months, index=current_month - 1, key="m2")
+    df = load_transactions(selected_year, selected_month)
     st.subheader("➕ Add Transaction")
-    with st.form("add_txn", clear_on_submit=True):
+    with st.form("add_txn_transactions", clear_on_submit=True):
         t_type = st.radio("Type", ["income", "expense"], horizontal=True)
         amount = st.number_input("Amount", min_value=0.01, step=0.01)
         categories = load_categories()
@@ -269,11 +273,6 @@ with tabs[0]:
                                  selected_year, selected_month)
                 st.success("✅ Transaction added!")
                 st.rerun()
-
-# === TRANSACTIONS TAB ===
-with tabs[1]:
-    selected_year, selected_month = st.selectbox("Year", reversed(years), key="y2"), st.selectbox("Month", months, index=current_month - 1, key="m2")
-    df = load_transactions(selected_year, selected_month)
     if df.empty:
         st.info("No transactions.")
     else:
