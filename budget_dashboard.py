@@ -234,6 +234,12 @@ def show_all_time_dashboard():
     st.pyplot(fig)
     st.subheader("🏆 Top Spending Categories (All Time)")
     st.table(all_df[all_df["type"] == "expense"].groupby("category")["amount"].sum().sort_values(ascending=False).head(5).reset_index())
+    st.subheader("📦 Category Totals — All Time")
+    all_category_totals = category_tally(all_df)
+    if all_category_totals.empty:
+        st.info("No category totals available yet.")
+    else:
+        st.table(all_category_totals)
 
 # === INIT ===
 clone_or_pull_repo()
@@ -450,13 +456,6 @@ with tabs[3]:
             else:
                 st.table(month_category_totals)
             st.dataframe(month_df)
-
-        st.subheader("📦 Category Totals — All Time")
-        all_category_totals = category_tally(all_df)
-        if all_category_totals.empty:
-            st.info("No category totals available yet.")
-        else:
-            st.table(all_category_totals)
 
 # === SETTINGS TAB ===
 with tabs[4]:
