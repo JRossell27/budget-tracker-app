@@ -443,7 +443,20 @@ with tabs[3]:
         if month_df.empty:
             st.info("No transactions recorded for this month.")
         else:
+            st.subheader(f"📂 Category Totals — {selected_label}")
+            month_category_totals = category_tally(month_df)
+            if month_category_totals.empty:
+                st.info("No category totals to display for this month.")
+            else:
+                st.table(month_category_totals)
             st.dataframe(month_df)
+
+        st.subheader("📦 Category Totals — All Time")
+        all_category_totals = category_tally(all_df)
+        if all_category_totals.empty:
+            st.info("No category totals available yet.")
+        else:
+            st.table(all_category_totals)
 
 # === SETTINGS TAB ===
 with tabs[4]:
