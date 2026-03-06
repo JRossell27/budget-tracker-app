@@ -103,10 +103,10 @@ def save_recurring(df):
     df.to_csv(RECURRING_FILE, index=False)
     push_changes_to_repo()
 
-def add_recurring(t_type, amount, category, note):
+def add_recurring(t_type, amount, category, note, source=""):
     df = load_recurring()
     new_id = int(df["id"].max() + 1) if not df.empty else 1
-    df = pd.concat([df, pd.DataFrame([{"id": new_id, "type": t_type, "amount": amount, "category": category, "note": note, "source": ""}])], ignore_index=True)
+    df = pd.concat([df, pd.DataFrame([{"id": new_id, "type": t_type, "amount": amount, "category": category, "note": note, "source": source}])], ignore_index=True)
     save_recurring(df)
 
 def delete_recurring(rid):
@@ -204,101 +204,187 @@ def show_pie_chart(df):
         st.info("No expenses to display.")
         return
     data = df[df["type"] == "expense"].groupby("category")["amount"].sum()
-    fig, ax = plt.subplots()
-    ax.pie(data, labels=data.index, autopct="%1.1f%%", startangle=90)
-    ax.set_title("Expense Breakdown by Category")
+    fig, ax = plt.subplots(figsize=(7, 5))
+    wedges, texts, autotexts = ax.pie(
+        data, labels=data.index, autopct="%1.1f%%", startangle=90,
+        colors=plt.cm.Set3.colors[:len(data)]
+    )
+    for text in autotexts:
+        text.set_fontsize(9)
+    ax.set_title("Expense Breakdown by Category", fontsize=13, fontweight="bold")
     st.pyplot(fig)
+    plt.close(fig)
 
 def show_income_vs_expense_chart(df):
     income, expenses, _ = calculate_totals(df)
-    fig, ax = plt.subplots()
-    ax.bar(["Income", "Expenses"], [income, expenses], color=["green", "red"])
+    fig, ax = plt.subplots(figsize=(5, 4))
+    bars = ax.bar(["Income", "Expenses"], [income, expenses], color=["#2ecc71", "#e74c3c"], width=0.5)
     ax.set_ylabel("Amount ($)")
-    ax.set_title("Income vs Expenses")
+    ax.set_title("Income vs Expenses", fontsize=13, fontweight="bold")
+    top = max(income, expenses)
+    for bar, val in zip(bars, [income, expenses]):
+        ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + top * 0.01,
+                f"${val:,.2f}", ha="center", va="bottom", fontweight="bold", fontsize=10)
+    ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f"${x:,.0f}"))
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
     st.pyplot(fig)
+    plt.close(fig)
 
 def show_all_time_dashboard():
     all_df = load_all_transactions()
     if all_df.empty:
         st.info("No data available yet.")
         return
-    st.subheader("📆 All-Time Summary")
-    summary = [{"Year": y, **dict(zip(["Income", "Expenses", "Balance"], calculate_totals(all_df[all_df["Year"] == y])))} for y in sorted(all_df["Year"].unique())]
-    st.dataframe(pd.DataFrame(summary))
+
+    st.subheader("📆 Yearly Summary")
+    summary = []
+    for y in sorted(all_df["Year"].unique()):
+        inc, exp, bal = calculate_totals(all_df[all_df["Year"] == y])
+        summary.append({"Year": y, "Income": inc, "Expenses": exp, "Balance": bal})
+    summary_df = pd.DataFrame(summary)
+    st.dataframe(
+        summary_df.style.format({"Income": "${:,.2f}", "Expenses": "${:,.2f}", "Balance": "${:,.2f}"}),
+        use_container_width=True, hide_index=True
+    )
+
     st.subheader("📈 Net Balance Over Time")
-    monthly = all_df.groupby(["Year", "Month", "type"])["amount"].sum().reset_index().pivot_table(index=["Year", "Month"], columns="type", values="amount", fill_value=0)
+    monthly = (all_df.groupby(["Year", "Month", "type"])["amount"].sum()
+               .reset_index()
+               .pivot_table(index=["Year", "Month"], columns="type", values="amount", fill_value=0))
     monthly["Net Balance"] = monthly.get("income", 0) - monthly.get("expense", 0)
     monthly = monthly.reset_index()
-    fig, ax = plt.subplots()
-    ax.plot(monthly.index, monthly["Net Balance"], marker="o", color="blue")
+    monthly["Label"] = monthly.apply(lambda r: f"{int(r['Year'])}-{int(r['Month']):02d}", axis=1)
+    x_vals = list(range(len(monthly)))
+    net = monthly["Net Balance"].tolist()
+    fig, ax = plt.subplots(figsize=(10, 4))
+    ax.plot(x_vals, net, marker="o", color="#3498db", linewidth=2)
+    ax.axhline(0, color="gray", linestyle="--", linewidth=0.8)
+    ax.fill_between(x_vals, net, 0,
+                    where=[v >= 0 for v in net], alpha=0.15, color="green", label="Positive")
+    ax.fill_between(x_vals, net, 0,
+                    where=[v < 0 for v in net], alpha=0.15, color="red", label="Negative")
+    ax.set_xticks(x_vals)
+    ax.set_xticklabels(monthly["Label"].tolist(), rotation=45, ha="right")
+    ax.set_ylabel("Net Balance ($)")
+    ax.set_title("Monthly Net Balance Trend", fontsize=13, fontweight="bold")
+    ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f"${x:,.0f}"))
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    plt.tight_layout()
     st.pyplot(fig)
-    st.subheader("🏆 Top Spending Categories (All Time)")
-    st.table(all_df[all_df["type"] == "expense"].groupby("category")["amount"].sum().sort_values(ascending=False).head(5).reset_index())
-    st.subheader("📦 Category Totals — All Time")
-    all_category_totals = category_tally(all_df)
-    if all_category_totals.empty:
-        st.info("No category totals available yet.")
-    else:
-        st.table(all_category_totals)
+    plt.close(fig)
+
+    col1, col2 = st.columns(2)
+    with col1:
+        st.subheader("🏆 Top Spending Categories (All Time)")
+        top5 = (all_df[all_df["type"] == "expense"]
+                .groupby("category")["amount"].sum()
+                .sort_values(ascending=False).head(5).reset_index()
+                .rename(columns={"category": "Category", "amount": "Total"}))
+        st.dataframe(
+            top5.style.format({"Total": "${:,.2f}"}),
+            use_container_width=True, hide_index=True
+        )
+    with col2:
+        st.subheader("📦 Category Totals — All Time")
+        all_category_totals = category_tally(all_df)
+        if all_category_totals.empty:
+            st.info("No category totals available yet.")
+        else:
+            st.dataframe(
+                all_category_totals.style.format({"Total": "${:,.2f}"}),
+                use_container_width=True, hide_index=True
+            )
 
 # === INIT ===
 clone_or_pull_repo()
 
-# === STREAMLIT APP (MOBILE FRIENDLY + DARK MODE + LAST SYNC) ===
-st.set_page_config(page_title="Budget Tracker v3.6.1", layout="wide")
-st.title("💰 Budget Tracker v3.6.1 (Mobile + Dark Mode)")
+# === PAGE CONFIG ===
+st.set_page_config(page_title="Budget Tracker", page_icon="💰", layout="wide")
 
-tabs = st.tabs(["📊 Dashboard", "✏️ Transactions", "📆 All-Time", "🗓️ Past Months", "⚙️ Settings"])
+MONTH_NAMES = ["January", "February", "March", "April", "May", "June",
+               "July", "August", "September", "October", "November", "December"]
 
-# === DASHBOARD TAB ===
-with tabs[0]:
-    # Show last synced status
+current_year = datetime.date.today().year
+current_month = datetime.date.today().month
+years = list(range(current_year - 5, current_year + 1))
+
+# === SIDEBAR: Global Period Selector + Sync Status ===
+with st.sidebar:
+    st.title("💰 Budget Tracker")
+
     if os.path.exists("last_synced.txt"):
         with open("last_synced.txt", "r") as f:
             last_synced = f.read().strip()
     else:
         last_synced = "Not yet synced"
-    st.caption(f"✅ **Last Synced:** {last_synced}")
+    st.caption(f"✅ Last synced: {last_synced}")
 
-    current_year, current_month = datetime.date.today().year, datetime.date.today().month
-    years, months = list(range(current_year - 5, current_year + 1)), list(range(1, 13))
-    selected_year, selected_month = st.selectbox("Year", reversed(years)), st.selectbox("Month", months, index=current_month - 1)
+    st.divider()
+    st.subheader("📅 Selected Period")
+    selected_year = st.selectbox("Year", list(reversed(years)), key="global_year")
+    selected_month = st.selectbox(
+        "Month",
+        list(range(1, 13)),
+        format_func=lambda m: MONTH_NAMES[m - 1],
+        index=current_month - 1,
+        key="global_month"
+    )
+
+# === MAIN HEADER ===
+st.title(f"💰 {MONTH_NAMES[selected_month - 1]} {selected_year}")
+
+tabs = st.tabs(["📊 Dashboard", "✏️ Transactions", "📆 All-Time", "🗓️ Past Months", "⚙️ Settings"])
+
+# === DASHBOARD TAB ===
+with tabs[0]:
     df = load_transactions(selected_year, selected_month)
-
     income, expenses, balance = calculate_totals(df)
-    st.markdown(f"""
-    <div style="padding:8px; border-radius:8px; border:1px solid rgba(255,255,255,0.2);">
-    <b>Income:</b> ${income:,.2f} | <b>Expenses:</b> ${expenses:,.2f} | <b>Balance:</b> ${balance:,.2f}
-    </div>
-    """, unsafe_allow_html=True)
+    savings_rate = (balance / income * 100) if income > 0 else 0.0
+
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("💰 Income", f"${income:,.2f}")
+    col2.metric("💸 Expenses", f"${expenses:,.2f}")
+    col3.metric("📊 Balance", f"${balance:,.2f}", delta=round(balance, 2))
+    col4.metric("📈 Savings Rate", f"{savings_rate:.1f}%", delta=round(savings_rate, 1))
+
+    st.divider()
 
     if st.button("🔁 Apply Recurring Charges"):
-        st.success(f"✅ {apply_recurring_to_month(selected_year, selected_month)} recurring charges added!")
+        count = apply_recurring_to_month(selected_year, selected_month)
+        st.success(f"✅ {count} recurring charges applied to {MONTH_NAMES[selected_month - 1]} {selected_year}!")
         st.rerun()
 
-    st.subheader("🏆 Top Spending Categories")
-    st.table(top_categories(df, 3))
-
-    st.subheader("📈 Visualizations")
-    chart_choice = st.radio("Choose Chart", ["Pie Chart (Expenses)", "Income vs Expenses"], horizontal=True)
-    if chart_choice == "Pie Chart (Expenses)":
-        show_pie_chart(df)
-    else:
-        show_income_vs_expense_chart(df)
+    col_left, col_right = st.columns([1, 1])
+    with col_left:
+        st.subheader("🏆 Top Spending Categories")
+        top = top_categories(df, 5)
+        if top.empty:
+            st.info("No expenses this month yet.")
+        else:
+            st.dataframe(top.style.format({"Total": "${:,.2f}"}), use_container_width=True, hide_index=True)
+    with col_right:
+        st.subheader("📈 Visualization")
+        chart_choice = st.radio("Chart Type", ["Pie Chart (Expenses)", "Income vs Expenses"], horizontal=True)
+        if chart_choice == "Pie Chart (Expenses)":
+            show_pie_chart(df)
+        else:
+            show_income_vs_expense_chart(df)
 
 # === TRANSACTIONS TAB ===
 with tabs[1]:
-    selected_year, selected_month = st.selectbox("Year", reversed(years), key="y2"), st.selectbox("Month", months, index=current_month - 1, key="m2")
     df = load_transactions(selected_year, selected_month)
     categories = load_categories()
     sources = load_sources()
+
     if "add_txn_type" not in st.session_state:
         st.session_state["add_txn_type"] = "expense"
     if "add_txn_source" not in st.session_state:
         st.session_state["add_txn_source"] = sources[0] if sources else ""
 
     type_options = ["income", "expense"]
-    default_type = st.session_state.get("add_txn_type", type_options[0])
+    default_type = st.session_state.get("add_txn_type", "expense")
     type_index = type_options.index(default_type) if default_type in type_options else 0
 
     source_options = sources.copy()
@@ -309,103 +395,136 @@ with tabs[1]:
         source_options.insert(0, default_source)
     source_index = source_options.index(default_source) if default_source in source_options else 0
 
-    st.subheader("➕ Add Transaction")
-    with st.form("add_txn_transactions", clear_on_submit=True):
-        t_type = st.radio("Type", type_options, horizontal=True, index=type_index)
-        amount = st.number_input("Amount", min_value=0.01, step=0.01)
-        category = st.selectbox("Category", categories + ["Other"])
-        custom_category = st.text_input("New Category") if category == "Other" else ""
-        note = st.text_input("Note (optional)")
-        source_choice = st.selectbox("Source", source_options, index=source_index)
-        custom_source = st.text_input("New Source", key="add_new_source") if source_choice == "Other" else ""
-        default_date = st.session_state.get("add_txn_date", datetime.date.today())
-        txn_date = st.date_input("Date", value=default_date, key="add_txn_date")
-        if st.form_submit_button("Add"):
-            if category == "Other":
-                category = custom_category.strip()
-                if category and category not in categories:
-                    categories.append(category)
-                    save_categories(categories)
-            if source_choice == "Other":
-                source_choice = custom_source.strip()
-                if source_choice and source_choice not in sources:
-                    sources.append(source_choice)
-                    save_sources(sources)
-            if not category:
-                st.warning("Please provide a category.")
-            elif not source_choice:
-                st.warning("Please provide a source.")
-            else:
-                st.session_state["add_txn_type"] = t_type
-                st.session_state["add_txn_source"] = source_choice
-                transaction_date = txn_date.isoformat() if isinstance(txn_date, datetime.date) else datetime.date.today().isoformat()
-                save_transaction({
-                    "id": generate_transaction_id(df),
-                    "date": transaction_date,
-                    "type": t_type,
-                    "amount": amount,
-                    "category": category,
-                    "note": note,
-                    "source": source_choice
-                }, selected_year, selected_month)
-                st.success("✅ Transaction added!")
-                st.rerun()
+    col_form, col_table = st.columns([1, 2])
 
-    if df.empty:
-        st.info("No transactions.")
-    else:
-        st.dataframe(df)
-        opt = st.selectbox("Select", ["None"] + [f"ID {r.id} | {r.type} ${r.amount}" for _, r in df.iterrows()])
-        if opt != "None":
+    with col_form:
+        st.subheader("➕ Add Transaction")
+        with st.form("add_txn_transactions", clear_on_submit=True):
+            t_type = st.radio("Type", type_options, horizontal=True, index=type_index)
+            amount = st.number_input("Amount ($)", min_value=0.01, step=0.01)
+            category = st.selectbox("Category", categories + ["Other"])
+            custom_category = st.text_input("New Category Name") if category == "Other" else ""
+            note = st.text_input("Note (optional)")
+            source_choice = st.selectbox("Source", source_options, index=source_index)
+            custom_source = st.text_input("New Source Name", key="add_new_source") if source_choice == "Other" else ""
+            default_date = st.session_state.get("add_txn_date", datetime.date.today())
+            txn_date = st.date_input("Date", value=default_date, key="add_txn_date")
+            if st.form_submit_button("Add Transaction", type="primary", use_container_width=True):
+                if category == "Other":
+                    category = custom_category.strip()
+                    if category and category not in categories:
+                        categories.append(category)
+                        save_categories(categories)
+                if source_choice == "Other":
+                    source_choice = custom_source.strip()
+                    if source_choice and source_choice not in sources:
+                        sources.append(source_choice)
+                        save_sources(sources)
+                if not category:
+                    st.warning("Please provide a category.")
+                elif not source_choice:
+                    st.warning("Please provide a source.")
+                else:
+                    st.session_state["add_txn_type"] = t_type
+                    st.session_state["add_txn_source"] = source_choice
+                    transaction_date = txn_date.isoformat() if isinstance(txn_date, datetime.date) else datetime.date.today().isoformat()
+                    save_transaction({
+                        "id": generate_transaction_id(df),
+                        "date": transaction_date,
+                        "type": t_type,
+                        "amount": amount,
+                        "category": category,
+                        "note": note,
+                        "source": source_choice
+                    }, selected_year, selected_month)
+                    st.success("✅ Transaction added!")
+                    st.rerun()
+
+    with col_table:
+        st.subheader(f"📋 Transactions — {MONTH_NAMES[selected_month - 1]} {selected_year}")
+        if df.empty:
+            st.info("No transactions recorded for this month.")
+        else:
+            display_df = df.copy().sort_values("date", ascending=False)
+            display_df["amount"] = display_df["amount"].apply(lambda x: f"${x:,.2f}")
+            display_df.columns = ["ID", "Date", "Type", "Amount", "Category", "Note", "Source"]
+            st.dataframe(display_df, use_container_width=True, hide_index=True)
+            csv_data = df.to_csv(index=False)
+            st.download_button(
+                "⬇️ Download CSV",
+                csv_data,
+                f"{selected_year}-{selected_month:02d}.csv",
+                "text/csv"
+            )
+
+    if not df.empty:
+        st.divider()
+        st.subheader("✏️ Edit or Delete a Transaction")
+        opt = st.selectbox(
+            "Select transaction",
+            ["— Select —"] + [f"ID {r.id} | {r.date} | {r.type} | ${r.amount:,.2f} | {r.category}" for _, r in df.iterrows()],
+            key="edit_select"
+        )
+        if opt != "— Select —":
             tid = int(opt.split()[1])
             row = df[df["id"] == tid].iloc[0]
-            new_amt = st.number_input("Amount", value=float(row["amount"]))
-            new_cat = st.text_input("Category", row["category"])
-            new_note = st.text_input("Note", row["note"])
-            try:
-                existing_date = datetime.date.fromisoformat(str(row["date"])) if row["date"] else datetime.date.today()
-            except ValueError:
-                existing_date = datetime.date.today()
-            edit_date = st.date_input("Date", value=existing_date, key=f"edit_date_{tid}")
 
-            source_edit_options = sources.copy()
-            current_source = row.get("source", "")
-            if current_source and current_source not in source_edit_options:
-                source_edit_options.append(current_source)
-            if "Other" not in source_edit_options:
-                source_edit_options.append("Other")
-            source_index_edit = source_edit_options.index(current_source) if current_source in source_edit_options else 0
-            new_source_choice = st.selectbox("Source", source_edit_options, index=source_index_edit, key=f"edit_source_{tid}")
-            edit_custom_source = st.text_input("New Source", key=f"edit_new_source_{tid}") if new_source_choice == "Other" else ""
+            col_e1, col_e2 = st.columns(2)
+            with col_e1:
+                type_edit_options = ["income", "expense"]
+                current_type_idx = type_edit_options.index(row["type"]) if row["type"] in type_edit_options else 0
+                new_type = st.radio("Type", type_edit_options, horizontal=True, index=current_type_idx, key=f"edit_type_{tid}")
+                new_amt = st.number_input("Amount ($)", value=float(row["amount"]), key=f"edit_amt_{tid}")
+                new_cat = st.text_input("Category", row["category"], key=f"edit_cat_{tid}")
+                new_note = st.text_input("Note", row["note"] if row["note"] else "", key=f"edit_note_{tid}")
+            with col_e2:
+                try:
+                    existing_date = datetime.date.fromisoformat(str(row["date"])) if row["date"] else datetime.date.today()
+                except ValueError:
+                    existing_date = datetime.date.today()
+                edit_date = st.date_input("Date", value=existing_date, key=f"edit_date_{tid}")
 
-            if st.button("Save"):
-                if new_source_choice == "Other":
-                    new_source_value = edit_custom_source.strip()
-                    if not new_source_value:
-                        st.warning("Please provide a source before saving.")
-                        st.stop()
-                    if new_source_value not in sources:
-                        sources.append(new_source_value)
-                        save_sources(sources)
-                    final_source = new_source_value
-                else:
-                    final_source = new_source_choice
+                source_edit_options = sources.copy()
+                current_source = row.get("source", "")
+                if current_source and current_source not in source_edit_options:
+                    source_edit_options.append(current_source)
+                if "Other" not in source_edit_options:
+                    source_edit_options.append("Other")
+                source_index_edit = source_edit_options.index(current_source) if current_source in source_edit_options else 0
+                new_source_choice = st.selectbox("Source", source_edit_options, index=source_index_edit, key=f"edit_source_{tid}")
+                edit_custom_source = st.text_input("New Source Name", key=f"edit_new_source_{tid}") if new_source_choice == "Other" else ""
 
-                df.loc[df["id"] == tid, ["amount", "category", "note", "date", "source"]] = [
-                    new_amt,
-                    new_cat,
-                    new_note,
-                    edit_date.isoformat() if isinstance(edit_date, datetime.date) else datetime.date.today().isoformat(),
-                    final_source
-                ]
-                save_transactions(df, selected_year, selected_month)
-                st.success("✅ Updated!")
-                st.rerun()
+            col_save, col_delete = st.columns(2)
+            with col_save:
+                if st.button("💾 Save Changes", use_container_width=True, type="primary"):
+                    if new_source_choice == "Other":
+                        new_source_value = edit_custom_source.strip()
+                        if not new_source_value:
+                            st.warning("Please provide a source before saving.")
+                            st.stop()
+                        if new_source_value not in sources:
+                            sources.append(new_source_value)
+                            save_sources(sources)
+                        final_source = new_source_value
+                    else:
+                        final_source = new_source_choice
 
-            if st.button("Delete"):
-                save_transactions(df[df["id"] != tid], selected_year, selected_month)
-                st.success("✅ Deleted!")
-                st.rerun()
+                    df.loc[df["id"] == tid, ["type", "amount", "category", "note", "date", "source"]] = [
+                        new_type,
+                        new_amt,
+                        new_cat,
+                        new_note,
+                        edit_date.isoformat() if isinstance(edit_date, datetime.date) else datetime.date.today().isoformat(),
+                        final_source
+                    ]
+                    save_transactions(df, selected_year, selected_month)
+                    st.success("✅ Transaction updated!")
+                    st.rerun()
+            with col_delete:
+                if st.button("🗑️ Delete Transaction", use_container_width=True):
+                    save_transactions(df[df["id"] != tid], selected_year, selected_month)
+                    st.success("✅ Transaction deleted!")
+                    st.rerun()
 
 # === ALL-TIME TAB ===
 with tabs[2]:
@@ -432,77 +551,110 @@ with tabs[3]:
         monthly_summary["Month Label"] = monthly_summary.apply(lambda row: f"{int(row['Year'])}-{int(row['Month']):02d}", axis=1)
 
         st.markdown("**Monthly Totals**")
-        st.dataframe(monthly_summary[["Month Label", "Income", "Expenses", "Balance"]].set_index("Month Label"))
+        st.dataframe(
+            monthly_summary[["Month Label", "Income", "Expenses", "Balance"]]
+            .set_index("Month Label")
+            .style.format({"Income": "${:,.2f}", "Expenses": "${:,.2f}", "Balance": "${:,.2f}"}),
+            use_container_width=True
+        )
 
         month_options = monthly_summary["Month Label"].tolist()
-        selected_label = st.selectbox("Select a month", month_options)
-        selected_year, selected_month = map(int, selected_label.split("-"))
+        selected_label = st.selectbox("Select a month to view details", month_options)
+        sel_year, sel_month = map(int, selected_label.split("-"))
         selected_row = monthly_summary[monthly_summary["Month Label"] == selected_label].iloc[0]
 
         c1, c2, c3 = st.columns(3)
-        c1.metric("Income", f"${selected_row['Income']:,.2f}")
-        c2.metric("Expenses", f"${selected_row['Expenses']:,.2f}")
-        c3.metric("Balance", f"${selected_row['Balance']:,.2f}")
+        c1.metric("💰 Income", f"${selected_row['Income']:,.2f}")
+        c2.metric("💸 Expenses", f"${selected_row['Expenses']:,.2f}")
+        c3.metric("📊 Balance", f"${selected_row['Balance']:,.2f}", delta=round(selected_row['Balance'], 2))
 
-        st.markdown(f"**Transactions for {selected_label}**")
-        month_df = load_transactions(selected_year, selected_month)
+        month_df = load_transactions(sel_year, sel_month)
         if month_df.empty:
             st.info("No transactions recorded for this month.")
         else:
             st.subheader(f"📂 Category Totals — {selected_label}")
             month_category_totals = category_tally(month_df)
-            if month_category_totals.empty:
-                st.info("No category totals to display for this month.")
-            else:
-                st.table(month_category_totals)
-            st.dataframe(month_df)
+            if not month_category_totals.empty:
+                st.dataframe(
+                    month_category_totals.style.format({"Total": "${:,.2f}"}),
+                    use_container_width=True, hide_index=True
+                )
+            st.subheader(f"📋 Transactions — {selected_label}")
+            display_month_df = month_df.copy().sort_values("date", ascending=False)
+            display_month_df["amount"] = display_month_df["amount"].apply(lambda x: f"${x:,.2f}")
+            display_month_df.columns = ["ID", "Date", "Type", "Amount", "Category", "Note", "Source"]
+            st.dataframe(display_month_df, use_container_width=True, hide_index=True)
 
 # === SETTINGS TAB ===
 with tabs[4]:
-    st.subheader("Categories")
-    cats = load_categories()
-    st.write("Current:", cats)
-    nc = st.text_input("Add Category")
-    if st.button("Add") and nc and nc not in cats:
-        cats.append(nc)
-        save_categories(cats)
-        st.success("✅ Added!")
-        st.rerun()
-    dc = st.selectbox("Delete", ["None"] + cats)
-    if st.button("Delete") and dc != "None":
-        save_categories([c for c in cats if c != dc])
-        st.success("✅ Deleted!")
-        st.rerun()
+    with st.expander("📂 Categories", expanded=True):
+        cats = load_categories()
+        st.write("**Current:**", ", ".join(cats) if cats else "None")
+        col_a, col_b = st.columns(2)
+        with col_a:
+            nc = st.text_input("New Category Name", key="settings_add_cat")
+            if st.button("Add Category", key="btn_add_cat") and nc and nc not in cats:
+                cats.append(nc)
+                save_categories(cats)
+                st.success(f"✅ '{nc}' added!")
+                st.rerun()
+        with col_b:
+            dc = st.selectbox("Remove Category", ["— Select —"] + cats, key="settings_del_cat")
+            if st.button("Delete Category", key="btn_del_cat") and dc != "— Select —":
+                save_categories([c for c in cats if c != dc])
+                st.success(f"✅ '{dc}' removed!")
+                st.rerun()
 
-    st.subheader("Sources")
-    srcs = load_sources()
-    st.write("Current:", srcs)
-    ns = st.text_input("Add Source", key="settings_add_source")
-    if st.button("Add Source") and ns and ns not in srcs:
-        srcs.append(ns)
-        save_sources(srcs)
-        st.success("✅ Added!")
-        st.rerun()
-    ds = st.selectbox("Delete Source", ["None"] + srcs, key="settings_delete_source")
-    if st.button("Delete Source") and ds != "None":
-        save_sources([s for s in srcs if s != ds])
-        st.success("✅ Deleted!")
-        st.rerun()
+    with st.expander("🏦 Sources", expanded=True):
+        srcs = load_sources()
+        st.write("**Current:**", ", ".join(srcs) if srcs else "None")
+        col_a, col_b = st.columns(2)
+        with col_a:
+            ns = st.text_input("New Source Name", key="settings_add_source")
+            if st.button("Add Source", key="btn_add_src") and ns and ns not in srcs:
+                srcs.append(ns)
+                save_sources(srcs)
+                st.success(f"✅ '{ns}' added!")
+                st.rerun()
+        with col_b:
+            ds = st.selectbox("Remove Source", ["— Select —"] + srcs, key="settings_delete_source")
+            if st.button("Delete Source", key="btn_del_src") and ds != "— Select —":
+                save_sources([s for s in srcs if s != ds])
+                st.success(f"✅ '{ds}' removed!")
+                st.rerun()
 
-    st.subheader("Recurring Charges")
-    rec_df = load_recurring()
-    if not rec_df.empty:
-        st.table(rec_df)
-    rt = st.radio("Type", ["income", "expense"], horizontal=True)
-    ra = st.number_input("Amount", min_value=0.01, step=0.01)
-    rc = st.text_input("Category")
-    rn = st.text_input("Note")
-    if st.button("Add Recurring"):
-        add_recurring(rt, ra, rc, rn)
-        st.success("✅ Added!")
-        st.rerun()
-    dr = st.selectbox("Delete Recurring", ["None"] + [f"ID {r}" for r in rec_df["id"]]) if not rec_df.empty else "None"
-    if st.button("Delete Recurring") and dr != "None":
-        delete_recurring(int(dr.split()[1]))
-        st.success("✅ Deleted!")
-        st.rerun()
+    with st.expander("🔁 Recurring Charges", expanded=True):
+        rec_df = load_recurring()
+        if not rec_df.empty:
+            st.dataframe(rec_df.style.format({"amount": "${:,.2f}"}), use_container_width=True, hide_index=True)
+        else:
+            st.info("No recurring charges configured.")
+
+        st.markdown("**Add Recurring Charge**")
+        col_r1, col_r2 = st.columns(2)
+        with col_r1:
+            rt = st.radio("Type", ["income", "expense"], horizontal=True, key="rec_type")
+            ra = st.number_input("Amount ($)", min_value=0.01, step=0.01, key="rec_amount")
+            rc = st.text_input("Category", key="rec_cat")
+        with col_r2:
+            rn = st.text_input("Note", key="rec_note")
+            rec_source_opts = load_sources() + ["Recurring", "Other"]
+            rs = st.selectbox("Source", rec_source_opts, key="rec_source")
+            if rs == "Other":
+                rs = st.text_input("Custom Source", key="rec_custom_source")
+        if st.button("Add Recurring Charge", key="btn_add_rec"):
+            add_recurring(rt, ra, rc, rn, rs)
+            st.success("✅ Recurring charge added!")
+            st.rerun()
+
+        if not rec_df.empty:
+            st.markdown("**Remove Recurring Charge**")
+            dr_options = ["— Select —"] + [
+                f"ID {r['id']} — {r['category']} ${r['amount']:,.2f}"
+                for _, r in rec_df.iterrows()
+            ]
+            dr = st.selectbox("Select to delete", dr_options, key="rec_del_select")
+            if st.button("Delete Recurring", key="btn_del_rec") and dr != "— Select —":
+                delete_recurring(int(dr.split()[1]))
+                st.success("✅ Deleted!")
+                st.rerun()
